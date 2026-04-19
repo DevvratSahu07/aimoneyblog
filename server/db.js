@@ -1,43 +1,26 @@
+const { Pool } = require('pg');
 require('dotenv').config();
-const dns = require('dns');
-const postgres = require('postgres');
 
-dns.setDefaultResultOrder('ipv4first');
-
-const connectionString = process.env.DATABASE_URL;
-
-const sql = postgres(connectionString, {
-  ssl: 'require',
-  connect_timeout: 10,
-  idle_timeout: 20,
-  max_lifetime: 60 * 30,
-  prepare: false,
-  onnotice: () => {},
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
 
-function isDatabaseConnectionError(err) {
-  return Boolean(
-    err &&
-      ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'CONNECT_TIMEOUT'].includes(err.code)
-  );
-}
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+});
 
-async function query(text, params = []) {
-  try {
-    const result = await sql.unsafe(text, params);
-
-    return {
-      rows: result,
-      rowCount: typeof result.count === 'number' ? result.count : result.length,
-    };
-  } catch (err) {
-    if (isDatabaseConnectionError(err)) {
-      err.message =
-        'Database connection failed. Supabase direct DB access may be blocked on your network or the credentials may be incorrect.';
-    }
-
-    throw err;
+const query = async (text, params) => {
+  const start = Date.now();
+  const res = await pool.query(text, params);
+  const duration = Date.now() - start;
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Executed query', { text: text.substring(0, 50), duration, rows: res.rowCount });
   }
-}
+  return res;
+};
 
-module.exports = { sql, query, isDatabaseConnectionError };
+module.exports = { pool, query };
