@@ -9,11 +9,21 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 app.set('trust proxy', 1);
 
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 // Security & performance middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin(origin, callback) {
+    // Allow server-to-server requests and local tools without an Origin header.
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
